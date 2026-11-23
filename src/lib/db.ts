@@ -3,6 +3,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import { restoreIfMissing, scheduleBackup } from "./backup";
 import { estimateValue } from "./pricing";
 import type { Card, CardDetails, CardWithValue, PriceReport } from "./types";
 
@@ -14,6 +15,7 @@ let db: Database.Database | null = null;
 export function getDb(): Database.Database {
   if (db) return db;
   fs.mkdirSync(IMAGE_DIR, { recursive: true });
+  restoreIfMissing(DATA_DIR);
   db = new Database(path.join(DATA_DIR, "cards.db"));
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -47,7 +49,13 @@ export function getDb(): Database.Database {
     );
     CREATE INDEX IF NOT EXISTS price_reports_card ON price_reports(card_id, fetched_at);
   `);
+  scheduleBackup(db, DATA_DIR, 2_000);
   return db;
+}
+
+/** Call after any write so the OneDrive copy stays current. */
+function changed() {
+  if (db) scheduleBackup(db, DATA_DIR);
 }
 
 const BOOL_FIELDS = ["rookie", "autograph", "memorabilia", "is_graded"] as const;
@@ -157,6 +165,7 @@ export function createCard(
     d.prepare("UPDATE cards SET image_file = ? WHERE id = ?").run(file, id);
   }
   if (extras.priceReport) savePriceReport(id, extras.priceReport);
+  changed();
   return getCard(id)!;
 }
 
@@ -168,6 +177,7 @@ export function updateCard(id: number, input: CardInput): CardWithValue | null {
     getDb()
       .prepare(`UPDATE cards SET ${names.map((n) => `${n} = @${n}`).join(", ")}, updated_at = datetime('now') WHERE id = @id`)
       .run({ ...cols, id });
+    changed();
   }
   return getCard(id);
 }
@@ -176,6 +186,7 @@ export function deleteCard(id: number): boolean {
   const file = getImageFile(id);
   const info = getDb().prepare("DELETE FROM cards WHERE id = ?").run(id);
   if (file) fs.rmSync(file, { force: true });
+  changed();
   return info.changes > 0;
 }
 
@@ -183,6 +194,7 @@ export function savePriceReport(cardId: number, report: PriceReport): void {
   getDb()
     .prepare("INSERT INTO price_reports (card_id, fetched_at, report_json) VALUES (?, ?, ?)")
     .run(cardId, report.fetched_at, JSON.stringify(report));
+  changed();
 }
 
 export function priceHistory(cardId: number): { fetched_at: string; raw: number | null; value: number | null }[] {

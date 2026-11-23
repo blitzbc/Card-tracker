@@ -24,19 +24,46 @@ npm run dev                  # http://localhost:3000
 | `ANTHROPIC_API_KEY` | Identifying cards from photos | [console.anthropic.com](https://console.anthropic.com/) → API keys |
 | `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` | Price lookups | [developer.ebay.com](https://developer.ebay.com/my/keys): create an app and use the **Production** keyset (App ID = client ID, Cert ID = client secret) |
 
-The app runs without the keys, but identification and pricing stay off until you add them. A banner says which keys are missing. You can always enter card details and your own value by hand.
+For development, put the keys in `.env.local`. For the Windows setup below, the installer asks for them instead. The app runs without the keys, but identification and pricing stay off until you add them. A banner says which keys are missing. You can always enter card details and your own value by hand.
 
-### Using it on your phone
+## Run it on a Windows PC and use it from your phone
 
-Run the server on your computer and open it from your phone on the same Wi-Fi:
+The app runs on a Windows PC that stays on. Your phone opens it in the browser, on home Wi-Fi or from anywhere through Tailscale. The collection is backed up to OneDrive automatically.
 
-```bash
-npm run build && npm start -- -H 0.0.0.0
-```
+### Install
 
-Then visit `http://<your-computer's-IP>:3000` on the phone. "Add card" opens the camera directly. To put it on your home screen, use Safari → Share → *Add to Home Screen* (iOS) or Chrome → *Install app* (Android).
+1. Get the code onto the PC: either `git clone https://github.com/blitzbc/card-tracker` (recommended, makes updating easy) or *Code -> Download ZIP* on GitHub and unzip it somewhere permanent, e.g. `Documents\card-tracker`.
+2. Double-click **`install.cmd`** in that folder. It will:
+   - install Node.js with winget if it's missing (then ask you to run `install.cmd` again),
+   - ask for a **password** for the app, your **Anthropic API key**, your **eBay keys**, and the **OneDrive folder** for backups (defaults to `OneDrive\CardTracker`),
+   - build the app and set it to start in the background whenever you log in to Windows,
+   - ask Windows for permission to open port 3000 to your home network and Tailscale only,
+   - print the addresses to open on your phone.
 
-To use it away from home, deploy it to a host that keeps a disk, such as a small VPS, Railway or Fly.io with a volume. The collection is a SQLite file. Serverless hosts like Vercel won't keep it.
+Keys and the password are saved in `%LOCALAPPDATA%\CardTracker\config.json`, encrypted so that only your Windows account on this PC can read them. To change them, run `install.cmd` again and press Enter for anything you want to keep.
+
+### Open it on your phone
+
+- **At home:** connect the phone to the same Wi-Fi and open the "Phone on home Wi-Fi" address the installer printed, e.g. `http://192.168.1.20:3000`.
+- **Anywhere:** install [Tailscale](https://tailscale.com/download) on the PC and on your phone and sign in to the same account on both. Then open `http://<pc-name>:3000` (or the `100.x.x.x` address) on the phone. Only your own devices can reach it.
+- **Add it to your home screen:** in Safari, Share -> *Add to Home Screen*; in Chrome on Android, the menu -> *Add to Home screen*.
+
+### Keep the PC reachable
+
+The app runs while you're logged in to Windows. Locking the screen is fine, but sleep and signing out stop it. To keep it reachable, set *Settings -> System -> Power -> Screen and sleep -> When plugged in, put my device to sleep after* to **Never**.
+
+### Your data and the OneDrive backup
+
+- The live collection is in `%LOCALAPPDATA%\CardTracker\data` on the PC's own disk. OneDrive uploads files while they're being written, which can corrupt a live database, so the database itself stays out of OneDrive.
+- About 10 seconds after any change, the app writes a clean copy (`cards.db` plus an `images` folder) to your OneDrive backup folder. If a backup fails, a warning appears at the top of the app.
+- **Moving to a new PC or reinstalling:** let OneDrive finish syncing on the new PC, then run `install.cmd` and give it the same backup folder. When no local collection exists, the app restores it from the backup on first start.
+
+### Update, stop, uninstall
+
+- **Update to the latest version:** double-click `update.cmd`. It pulls the code, rebuilds, and restarts.
+- **Stop or start by hand:** open Task Scheduler and find the **Card Tracker** task.
+- **Logs:** `%LOCALAPPDATA%\CardTracker\server.log` and `server-error.log`.
+- **Uninstall:** `uninstall.cmd` removes the startup task and firewall rule. Your data and backup stay where they are.
 
 ## How pricing works
 
@@ -70,9 +97,13 @@ src/
     ebay.ts                eBay OAuth + Browse API search
     pricing.ts             title parsing, raw/graded buckets, stats (unit-tested)
     db.ts                  SQLite schema and queries (data/cards.db)
+    backup.ts              snapshot to BACKUP_DIR (OneDrive) after changes; restore on first start
+    session.ts             optional password login (APP_PASSWORD)
+  middleware.ts            sends signed-out visitors to /login
+scripts/windows/           install / start / update / uninstall for running on a Windows PC
 ```
 
-Data (the database and card photos) lives in `./data/`, or in `DATA_DIR` if set. It's git-ignored, so back it up yourself.
+Data (the database and card photos) lives in `./data/`, or in `DATA_DIR` if set. It's git-ignored. Set `BACKUP_DIR` to keep an automatic copy elsewhere.
 
 ## Scripts
 
